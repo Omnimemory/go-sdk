@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix, for example 0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.25.x", "1.26.x"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+          cache: true
+      - name: Verify source
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+          go build ./...
+          make check-generated
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Validate release version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "Use a semantic version such as 0.1.0 or 1.0.0" >&2
+            exit 1
+          }
+          ! git rev-parse "v${VERSION}^{commit}" >/dev/null 2>&1 || {
+            echo "Tag v${VERSION} already exists" >&2
+            exit 1
+          }
+      - name: Create and push release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github.com"
+          git tag -a "v${VERSION}" -m "MemAura Go SDK v${VERSION}"
+          git push origin "v${VERSION}"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release create "v${VERSION}" --generate-notes --title "MemAura Go SDK v${VERSION}"
