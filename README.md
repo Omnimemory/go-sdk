@@ -216,7 +216,13 @@ make snapshot OPENAPI_SOURCE=/path/to/router/docs/openapi.v2.json
 make generate
 make check-generated
 go test -race ./...
+make coverage
 ```
+
+`make coverage` requires 100% statement coverage for the complete hand-written
+root package. Generated `internal/generated` packages and runnable examples are
+explicitly excluded from the metric; they are still generated, built, and
+validated separately by CI.
 
 Git tags in the form `vX.Y.Z` are Go Module release versions. CI verifies both supported Go releases before a tag is created.
 

@@ -212,7 +212,11 @@ make snapshot OPENAPI_SOURCE=/path/to/router/docs/openapi.v2.json
 make generate
 make check-generated
 go test -race ./...
+make coverage
 ```
+
+`make coverage` 要求全部手写根包达到 100% 语句覆盖率。生成的
+`internal/generated` 包和可运行示例明确不计入该口径，但 CI 仍会分别生成、构建和校验它们。
 
 格式为 `vX.Y.Z` 的 Git tag 即 Go Module 发布版本。创建 tag 前，CI 会验证两个受支持的 Go 版本。
 

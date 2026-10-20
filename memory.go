@@ -15,6 +15,8 @@ type Memory struct {
 	deviceNo string
 }
 
+var newGeneratedClient = ogen.NewClient
+
 // NewMemory creates a Memory client.
 func NewMemory(config Config) (*Memory, error) {
 	if strings.TrimSpace(config.APIKey) == "" {
@@ -30,7 +32,7 @@ func NewMemory(config Config) (*Memory, error) {
 	if config.HTTPClient != nil {
 		options = append(options, ogen.WithClient(config.HTTPClient))
 	}
-	client, err := ogen.NewClient(endpoint, apiKeySource{apiKey: config.APIKey}, options...)
+	client, err := newGeneratedClient(endpoint, apiKeySource{apiKey: config.APIKey}, options...)
 	if err != nil {
 		return nil, fmt.Errorf("create generated client: %w", err)
 	}
