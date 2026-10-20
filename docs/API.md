@@ -2,13 +2,35 @@
 
 [简体中文](API.zh-CN.md)
 
-## Client
+## V4 API
+
+`NewMemoryV4(Config)` creates the additive V4 client. Its default endpoint is `https://api.omnimemory.cn/api/v3`; the legacy `NewMemory` client remains unchanged.
+
+### Ingest
+
+`Ingest(ctx, V4IngestInput)` posts turns to `/memory/ingest_4` and returns a `V4Job`. The input supports language (`auto`, `zh`, or `en`), timezone, per-operation device number, wait target (`staged` or `searchable`), and a Router wait timeout of at most 300 seconds.
+
+V4 ingestion is sent exactly once. The SDK never retries a write automatically; after an ambiguous timeout or transport failure, use the retained job ID or an application-level idempotency strategy instead of blindly resubmitting.
+
+### Retrieval
+
+`Retrieve(ctx, V4RetrievalInput)` posts to `/memory/retrieval_4` and returns normalized `V4Card` values with compact `V4Episode` sources. Filters include `TopK`, `VectorWeight`, `TagKeys`, `Role`, `ScopeType`, `StartTime`, `EndTime`, `EntityID`, `EntityMatchMode`, and `ParticipantRoles`. `DeviceNo`, `IncludeQueryAnalysis`, and `IncludeDetails` control request scope and optional response data.
+
+`ScopeType` accepts `account`, `api_key`, or `device`; `EntityMatchMode` accepts `primary`, `involved`, or `source`.
+
+### Jobs
+
+`memory.Jobs().Get(ctx, jobID)` reads `/memory/ingest_4/jobs/{jobID}`. `Wait` polls only that job until `succeeded` or `failed`; pending states are `queued`, `staged`, `processing`, `buffered`, and `indexing`. It supports `WithPollInterval` and `WithWaitTimeout`, defaulting to one second and five minutes. A timeout returns `*V4TimeoutError`, which unwraps to `context.DeadlineExceeded`.
+
+## Legacy V2 API
+
+### Client
 
 `NewMemory(Config)` validates the API key and endpoint immediately. The default endpoint is `https://api.omnimemory.cn/api/v2`.
 
 `HTTPClient` is optional. Prefer request-scoped deadlines through `context.Context`; the SDK passes that context to every generated HTTP operation.
 
-## Ingest
+### Ingest
 
 ```go
 ack, err := memory.Add(ctx, memaura.AddInput{
@@ -25,7 +47,7 @@ ack, err := memory.Add(ctx, memaura.AddInput{
 
 `CommitID` prevents duplicate enqueueing for retried writes in the same Router idempotency scope. Do not let the SDK retry ingestion automatically because callers must control the idempotency key.
 
-## Retrieval
+### Retrieval
 
 ```go
 input := memaura.SearchInput{
@@ -41,7 +63,7 @@ hybrid, err := memory.SearchHybrid(ctx, input)
 
 `Search` and `SearchHybrid` are separate operations. Setting a device number never changes the selected retrieval strategy. `SearchResult.EvidenceDetails` is ordered evidence suitable for downstream context assembly.
 
-## Jobs
+### Jobs
 
 ```go
 status, err := memory.Jobs().Get(ctx, ack.JobID)

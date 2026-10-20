@@ -63,7 +63,38 @@ func main() {
 }
 ```
 
-## API
+## V4 Card/Episode API
+
+`NewMemoryV4` creates an additive client for the current `/api/v3` data plane.
+`NewMemory` remains unchanged for existing `/api/v2` integrations.
+
+```go
+memory, err := memaura.NewMemoryV4(memaura.Config{
+	APIKey: os.Getenv("MEMAURA_API_KEY"), DeviceNo: "DEVICE-001",
+})
+if err != nil { log.Fatal(err) }
+
+ack, err := memory.Ingest(ctx, memaura.V4IngestInput{Turns: []memaura.V4Turn{
+	{Role: memaura.RoleUser, Content: "I prefer product reviews on Wednesday afternoons."},
+	{Role: memaura.RoleAssistant, Content: "Noted."},
+}})
+if err != nil { log.Fatal(err) }
+job, err := memory.Jobs().Wait(ctx, ack.JobID, memaura.WithWaitTimeout(5*time.Minute))
+if err != nil { log.Fatal(err) }
+if job.Status == "failed" { log.Fatalf("ingest failed: %v", job.Error) }
+
+result, err := memory.Retrieve(ctx, memaura.V4RetrievalInput{
+	Query: "When do I prefer product reviews?", TopK: 5,
+})
+if err != nil { log.Fatal(err) }
+```
+
+V4 writes are never retried automatically. A local wait timeout does not
+cancel the job; continue polling the same job ID. Retrieval supports TopK,
+weighted vector/text fusion, hard tags, role and scope selection, explicit time
+ranges, and entity/participant filters.
+
+## Legacy V2 API
 
 ```go
 memory, err := memaura.NewMemory(memaura.Config{

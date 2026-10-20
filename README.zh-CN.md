@@ -63,7 +63,36 @@ func main() {
 }
 ```
 
-## API
+## V4 Card/Episode API
+
+`NewMemoryV4` 用于创建面向当前 `/api/v3` 数据面的新增客户端；原有 `NewMemory`
+继续服务已有的 `/api/v2` 接入，行为不变。
+
+```go
+memory, err := memaura.NewMemoryV4(memaura.Config{
+	APIKey: os.Getenv("MEMAURA_API_KEY"), DeviceNo: "DEVICE-001",
+})
+if err != nil { log.Fatal(err) }
+
+ack, err := memory.Ingest(ctx, memaura.V4IngestInput{Turns: []memaura.V4Turn{
+	{Role: memaura.RoleUser, Content: "我偏好周三下午进行产品评审。"},
+	{Role: memaura.RoleAssistant, Content: "好的，已记下。"},
+}})
+if err != nil { log.Fatal(err) }
+job, err := memory.Jobs().Wait(ctx, ack.JobID, memaura.WithWaitTimeout(5*time.Minute))
+if err != nil { log.Fatal(err) }
+if job.Status == "failed" { log.Fatalf("写入失败: %v", job.Error) }
+
+result, err := memory.Retrieve(ctx, memaura.V4RetrievalInput{
+	Query: "我偏好什么时候进行产品评审？", TopK: 5,
+})
+if err != nil { log.Fatal(err) }
+```
+
+V4 写入不会自动重试。本地等待超时不会取消后台任务，请继续查询同一个任务 ID。检索支持
+TopK、向量/文本融合权重、硬标签、角色和作用域、显式时间范围，以及实体和参与角色过滤。
+
+## 旧版 V2 API
 
 ```go
 memory, err := memaura.NewMemory(memaura.Config{
