@@ -89,6 +89,65 @@ result, err := memory.Retrieve(ctx, memaura.V4RetrievalInput{
 if err != nil { log.Fatal(err) }
 ```
 
+### Client and ingestion
+
+`NewMemoryV4(Config)` uses `Config.APIKey` and the optional `Endpoint`,
+`DeviceNo`, and `HTTPClient`. Its default endpoint is
+`https://api.omnimemory.cn/api/v3`; the default HTTP client has a 30-second
+timeout.
+
+`Ingest(ctx, V4IngestInput)` calls `POST /memory/ingest_4` and returns `V4Job`.
+
+| `V4IngestInput` field | Meaning |
+| --- | --- |
+| `Turns []V4Turn` | Required non-empty messages. |
+| `Language string` | `auto` (default), `zh`, or `en`. |
+| `Timezone string` | Optional timezone. |
+| `DeviceNo string` | Per-operation device override. |
+| `WaitFor string` | `staged` (default) or `searchable`. |
+| `WaitTimeoutSeconds float64` | Router wait, default 120 and maximum 300 seconds. |
+
+Each `V4Turn` has `Content` plus optional `Role`, `TurnID`, `Timestamp`,
+`SenderName`, and `ReferList`.
+
+### Retrieval
+
+`Retrieve(ctx, V4RetrievalInput)` calls `POST /memory/retrieval_4`.
+
+| `V4RetrievalInput` field | Meaning |
+| --- | --- |
+| `Query string` | Required non-empty query. |
+| `TopK int` | Zero omits the field; otherwise 1–100. |
+| `VectorWeight *float64` | Defaults to 0.8; accepted range is 0–1. |
+| `TagKeys []string` | Hard tag filters. |
+| `Role string` | Card role filter. |
+| `ScopeType string` | `account`, `api_key`, or `device`. |
+| `StartTime`, `EndTime string` | Explicit time range. |
+| `EntityID string` | Entity filter. |
+| `EntityMatchMode string` | `primary`, `involved`, or `source`. |
+| `ParticipantRoles []string` | Participant-role filters. |
+| `DeviceNo string` | Per-operation device override. |
+| `IncludeQueryAnalysis bool` | Include query analysis. |
+| `IncludeDetails bool` | Preserve the complete response in `Details`. |
+
+`V4RetrievalResult` contains `Cards`, optional `QueryAnalysis`, and optional
+`Details`. Each `V4Card` has `CardID`, `Role`, `Content`, and `Episodes`; each
+`V4Episode` has `EpisodeID` and `Summary`.
+
+### V4 jobs
+
+- `memory.Jobs().Get(ctx, jobID)` reads `GET /memory/ingest_4/jobs/{jobID}`.
+- `memory.Jobs().Wait(ctx, jobID, options...)` polls only the existing job.
+- `WithPollInterval(duration)` and `WithWaitTimeout(duration)` configure the wait; defaults are one second and five minutes.
+
+`Jobs()` returns `*V4JobOperations`; its variadic configuration values implement
+the exported `WaitOption` interface.
+
+`V4Job` contains `JobID`, `Status`, `WaitTimedOut`, and `Error`. Pending states
+are `queued`, `staged`, `processing`, `buffered`, and `indexing`; terminal
+states are `succeeded` and `failed`. Expiry returns `*V4TimeoutError`, which
+contains `JobID` and `LastJob` and unwraps to `context.DeadlineExceeded`.
+
 V4 writes are never retried automatically. A local wait timeout does not
 cancel the job; continue polling the same job ID. Retrieval supports TopK,
 weighted vector/text fusion, hard tags, role and scope selection, explicit time
@@ -111,6 +170,23 @@ status, err := memory.Jobs().Get(ctx, ack.JobID)
 finished, err := memory.Jobs().Wait(ctx, ack.JobID)
 ```
 
+### V2 public types and methods
+
+- `Config`: `APIKey`, optional `Endpoint`, `DeviceNo`, and `HTTPClient`.
+- `Turn`: `Content`, `Role`, `TurnID`, `Timestamp`, `SenderName`, and `ReferList`.
+- `AddInput`: `Turns`, `SessionID`, `GroupID`, `GroupName`, `CommitID`, and `DeviceNo`.
+- `Add(ctx, AddInput) (JobAck, error)`: returns `JobID`, `SessionID`, `Status`, and `StatusURL`.
+- `Search(ctx, SearchInput)` and `SearchHybrid(ctx, SearchInput)`: `SearchInput` contains `Query`, `Limit`, `GroupID`, and `DeviceNo`.
+- `Jobs().Get(ctx, jobID)` and `Jobs().Wait(ctx, jobID, options...)`: return `JobStatus` with `JobID`, `SessionID`, and `Status`.
+
+`Jobs()` returns `*JobOperations`; `Wait` uses the same `WaitOption` values.
+
+`RoleUser`, `RoleAssistant`, and `RoleSystem` are the predefined `Role` values.
+`SearchResult` contains `Strategy`, `Query`, `Evidence`, ordered
+`EvidenceDetails`, and optional `RequestedGroupID`. Each `EvidenceDetail`
+contains `EventID`, `Text`, `Source`, optional `Role`, optional `SenderName`,
+`AtomicFacts`, optional `GroupID`, and optional `Timestamp`.
+
 - `Add` is asynchronous. Use `CommitID` for idempotent retry behavior.
 - `Search` always uses `/memory/retrieval`; `SearchHybrid` always uses `/memory/retrieval/hybrid`.
 - A configured `DeviceNo`, or an operation-level `DeviceNo`, is sent as `X-Device-No` for ingestion and retrieval.
@@ -122,7 +198,8 @@ See the full [API reference](docs/API.md) and the [basic example](examples/basic
 
 - `*memaura.ValidationError`: invalid local input; no request was sent.
 - `*memaura.APIError`: a Router error envelope; inspect `StatusCode`, `Code`, `ErrorCode`, and `Detail`.
-- `*memaura.TimeoutError`: job waiting reached its deadline. It unwraps to `context.DeadlineExceeded` and includes `LastJob` when available.
+- `*memaura.TimeoutError`: job waiting reached its deadline. Its `Unwrap()` matches `context.DeadlineExceeded` and it includes `LastJob` when available.
+- `*memaura.V4TimeoutError`: the equivalent V4 wait timeout with `JobID` and `LastJob`.
 - Network, transport, and caller-context errors are returned with their original cause.
 
 ## Security

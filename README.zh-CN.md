@@ -89,6 +89,63 @@ result, err := memory.Retrieve(ctx, memaura.V4RetrievalInput{
 if err != nil { log.Fatal(err) }
 ```
 
+### 客户端与写入
+
+`NewMemoryV4(Config)` 使用 `Config.APIKey` 以及可选的 `Endpoint`、`DeviceNo`
+和 `HTTPClient`。默认端点为 `https://api.omnimemory.cn/api/v3`；默认 HTTP
+客户端的超时为 30 秒。
+
+`Ingest(ctx, V4IngestInput)` 调用 `POST /memory/ingest_4` 并返回 `V4Job`。
+
+| `V4IngestInput` 字段 | 说明 |
+| --- | --- |
+| `Turns []V4Turn` | 必填的非空消息列表。 |
+| `Language string` | `auto`（默认）、`zh` 或 `en`。 |
+| `Timezone string` | 可选时区。 |
+| `DeviceNo string` | 单次操作设备号覆盖。 |
+| `WaitFor string` | `staged`（默认）或 `searchable`。 |
+| `WaitTimeoutSeconds float64` | Router 等待时间，默认 120 秒，最大 300 秒。 |
+
+每个 `V4Turn` 包含 `Content`，并可包含 `Role`、`TurnID`、`Timestamp`、
+`SenderName` 和 `ReferList`。
+
+### 检索
+
+`Retrieve(ctx, V4RetrievalInput)` 调用 `POST /memory/retrieval_4`。
+
+| `V4RetrievalInput` 字段 | 说明 |
+| --- | --- |
+| `Query string` | 必填的非空问题。 |
+| `TopK int` | 为零时省略，否则为 1–100。 |
+| `VectorWeight *float64` | 默认 0.8，范围为 0–1。 |
+| `TagKeys []string` | 硬标签过滤。 |
+| `Role string` | Card 角色过滤。 |
+| `ScopeType string` | `account`、`api_key` 或 `device`。 |
+| `StartTime`, `EndTime string` | 显式时间范围。 |
+| `EntityID string` | 实体过滤。 |
+| `EntityMatchMode string` | `primary`、`involved` 或 `source`。 |
+| `ParticipantRoles []string` | 参与角色过滤。 |
+| `DeviceNo string` | 单次操作设备号覆盖。 |
+| `IncludeQueryAnalysis bool` | 返回查询分析。 |
+| `IncludeDetails bool` | 在 `Details` 中保留完整响应。 |
+
+`V4RetrievalResult` 包含 `Cards`、可选 `QueryAnalysis` 和可选 `Details`。
+每个 `V4Card` 包含 `CardID`、`Role`、`Content` 和 `Episodes`；每个
+`V4Episode` 包含 `EpisodeID` 与 `Summary`。
+
+### V4 任务
+
+- `memory.Jobs().Get(ctx, jobID)` 查询 `GET /memory/ingest_4/jobs/{jobID}`。
+- `memory.Jobs().Wait(ctx, jobID, options...)` 只轮询已有任务。
+- `WithPollInterval(duration)` 与 `WithWaitTimeout(duration)` 配置等待；默认分别为一秒和五分钟。
+
+`Jobs()` 返回 `*V4JobOperations`；其可变配置参数实现公开的 `WaitOption` 接口。
+
+`V4Job` 包含 `JobID`、`Status`、`WaitTimedOut` 与 `Error`。等待状态为
+`queued`、`staged`、`processing`、`buffered` 和 `indexing`；终态为
+`succeeded` 与 `failed`。超时时返回 `*V4TimeoutError`，其中包含 `JobID`
+和 `LastJob`，并可通过 `errors.Is` 匹配 `context.DeadlineExceeded`。
+
 V4 写入不会自动重试。本地等待超时不会取消后台任务，请继续查询同一个任务 ID。检索支持
 TopK、向量/文本融合权重、硬标签、角色和作用域、显式时间范围，以及实体和参与角色过滤。
 
@@ -109,6 +166,23 @@ status, err := memory.Jobs().Get(ctx, ack.JobID)
 finished, err := memory.Jobs().Wait(ctx, ack.JobID)
 ```
 
+### V2 公开类型与方法
+
+- `Config`：`APIKey`，以及可选的 `Endpoint`、`DeviceNo` 和 `HTTPClient`。
+- `Turn`：`Content`、`Role`、`TurnID`、`Timestamp`、`SenderName` 与 `ReferList`。
+- `AddInput`：`Turns`、`SessionID`、`GroupID`、`GroupName`、`CommitID` 与 `DeviceNo`。
+- `Add(ctx, AddInput) (JobAck, error)`：返回 `JobID`、`SessionID`、`Status` 与 `StatusURL`。
+- `Search(ctx, SearchInput)` 与 `SearchHybrid(ctx, SearchInput)`：`SearchInput` 包含 `Query`、`Limit`、`GroupID` 与 `DeviceNo`。
+- `Jobs().Get(ctx, jobID)` 与 `Jobs().Wait(ctx, jobID, options...)`：返回包含 `JobID`、`SessionID` 和 `Status` 的 `JobStatus`。
+
+`Jobs()` 返回 `*JobOperations`；`Wait` 使用相同的 `WaitOption` 配置值。
+
+预定义的 `Role` 值为 `RoleUser`、`RoleAssistant` 和 `RoleSystem`。
+`SearchResult` 包含 `Strategy`、`Query`、`Evidence`、有序的
+`EvidenceDetails` 以及可选的 `RequestedGroupID`。每个 `EvidenceDetail`
+包含 `EventID`、`Text`、`Source`、可选 `Role`、可选 `SenderName`、
+`AtomicFacts`、可选 `GroupID` 与可选 `Timestamp`。
+
 - `Add` 为异步操作。为安全重试，请使用 `CommitID`。
 - `Search` 始终使用 `/memory/retrieval`；`SearchHybrid` 始终使用 `/memory/retrieval/hybrid`。
 - 配置的 `DeviceNo` 或单次调用传入的 `DeviceNo` 会作为 `X-Device-No` 用于写入和检索。
@@ -120,7 +194,8 @@ finished, err := memory.Jobs().Wait(ctx, ack.JobID)
 
 - `*memaura.ValidationError`：本地参数不合法，尚未发出请求。
 - `*memaura.APIError`：Router 返回错误信封，可检查 `StatusCode`、`Code`、`ErrorCode` 和 `Detail`。
-- `*memaura.TimeoutError`：等待任务到达截止时间。它可通过 `errors.Is(err, context.DeadlineExceeded)` 识别，并在可用时包含 `LastJob`。
+- `*memaura.TimeoutError`：等待任务到达截止时间。其 `Unwrap()` 可通过 `errors.Is(err, context.DeadlineExceeded)` 识别，并在可用时包含 `LastJob`。
+- `*memaura.V4TimeoutError`：对应的 V4 等待超时错误，包含 `JobID` 与 `LastJob`。
 - 网络、传输和调用方 `context` 的错误会保留原始原因。
 
 ## 安全边界
